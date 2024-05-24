@@ -27,16 +27,50 @@ public struct SwiftPhashBKTree {
     ///   - query: The query hash as a hexadecimal string.
     ///   - maxDistance: The maximum Hamming distance for matches.
     /// - Returns: An array of tuples, each containing a hash string and its associated metadata arrays.
-    public func search(query: String, maxDistance: Int) -> [(String, [[String: Any]])] {
+    public func search(query: String, maxDistance: Int) -> [Int : [[String: Any]]] {
         let phash = UInt64(query, radix: 16)!
-        guard let root = self.root else { return [] }
+        guard let root = self.root else { return [:] }
         let results =  root.search(query: phash, maxDistance: maxDistance)
         
-        let convertedResults: [(String, [[String: Any]])] = results.map { (phash, metadata) in
-            (String(phash, radix: 16, uppercase: true), metadata)
+        var mergedData: [Int: [[String: Any]]] = [:]
+
+        // Iterate over each element in the list
+        for (key, value) in results {
+            // Check if the key already exists in the dictionary
+            if var existingArray = mergedData[key] {
+                // If key exists, append the new array to the existing array
+                existingArray.append(contentsOf: value)
+                mergedData[key] = existingArray
+            } else {
+                // If key does not exist, add the new key-value pair
+                mergedData[key] = value
+            }
+        }
+
+        return mergedData
+    }
+    
+    /// Finds all nodes in the BK-tree where the `metadataList` contains more than one entry and groups them by their `phash`.
+    /// - Returns: A dictionary where each key is a `phash` and the value is a list of metadata dictionaries associated with that `phash`.
+    /// Each key-value pair in the returned dictionary represents a node in the BK-tree whose `metadataList` contains more than one entry,
+    /// grouped by the perceptual hash (`phash`) of the node.
+    public func findDuplicates() -> [UInt64 : [[String: Any]]] {
+        var allDuplicates : [UInt64 : [[String: Any]]] = [:]
+        collectNodesWithDuplicates(startingFrom: root, collected: &allDuplicates)
+        return allDuplicates
+    }
+
+    /// Recursively collects nodes from the BK-tree that have more than one metadata entry.
+    private func collectNodesWithDuplicates(startingFrom node: BKTreeNode?, collected: inout [UInt64 : [[String: Any]]]) {
+        guard let node = node else { return }
+        
+        if node.metadataList.count > 1 {
+            collected[node.phash] = node.metadataList
         }
         
-        return convertedResults
+        for child in node.children.values {
+            collectNodesWithDuplicates(startingFrom: child, collected: &collected)
+        }
     }
     
     /// Converts the BK-tree into a JSON object.
@@ -94,11 +128,11 @@ public class BKTreeNode {
         }
     }
     
-    func search(query: UInt64, maxDistance: Int) -> [(UInt64, [[String: Any]])] {
-        var results: [(UInt64, [[String: Any]])] = []
+    func search(query: UInt64, maxDistance: Int) -> [(Int, [[String: Any]])] {
+        var results: [(Int, [[String: Any]])] = []
         let distance = BKTreeNode.hammingDistance(from: self.phash, to: query)
         if distance <= maxDistance {
-            results.append((self.phash, self.metadataList))
+            results.append((distance, self.metadataList))
         }
         // Explore the children nodes that might have a match
         for d in max(0, distance - maxDistance)...(distance + maxDistance) {
